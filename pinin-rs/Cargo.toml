@@ -1,0 +1,9 @@
+[package]
+name = "pinin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+smallvec = { version = "1", features = ["union"] }
+compact_str = "0.8"
+unicode-segmentation = "1"
