@@ -187,4 +187,84 @@ impl Accelerator {
         }
         false
     }
+
+    // ── Compressor-explicit variants used by TreeSearcher ──────────────────
+
+    /// Whether the accelerator is currently in partial (prefix) mode.
+    pub(crate) fn is_partial(&self) -> bool {
+        self.partial
+    }
+
+    /// Force-set partial mode without resetting the cache (caller is responsible
+    /// for calling `reset()` when changing the mode).
+    pub(crate) fn set_partial(&mut self, v: bool) {
+        self.partial = v;
+    }
+
+    /// Like `common()` but reads from `strs` instead of the stored provider.
+    /// Returns the number of bytes that s1 and s2 share as a common prefix,
+    /// up to `max` bytes.
+    pub(crate) fn common_in(&self, s1: usize, s2: usize, max: usize, strs: &Compressor) -> usize {
+        let mut o1 = s1;
+        let mut o2 = s2;
+        let mut matched = 0;
+        while matched < max {
+            if strs.end(o1) || strs.end(o2) {
+                return matched;
+            }
+            let a = strs.get(o1);
+            let b = strs.get(o2);
+            if a != b {
+                return matched;
+            }
+            let consumed = strs.char_len(o1);
+            o1 += consumed;
+            o2 += consumed;
+            matched += consumed;
+        }
+        max
+    }
+
+    /// Like `begins()` but reads from `strs` instead of the stored provider.
+    pub(crate) fn begins_in(&mut self, offset: usize, start: usize, strs: &Compressor) -> bool {
+        if !self.partial {
+            self.partial = true;
+            self.reset();
+        }
+        self.check_in(offset, start, strs)
+    }
+
+    /// Like `matches()` but reads from `strs` instead of the stored provider.
+    pub(crate) fn matches_in(&mut self, offset: usize, start: usize, strs: &Compressor) -> bool {
+        if self.partial {
+            self.partial = false;
+            self.reset();
+        }
+        self.check_in(offset, start, strs)
+    }
+
+    fn check_in(&mut self, offset: usize, start: usize, strs: &Compressor) -> bool {
+        if offset == self.search_str.len() {
+            return self.partial || strs.end(start);
+        }
+        if strs.end(start) {
+            return false;
+        }
+        let cp = strs.get(start);
+        let matched = self.get(cp, offset); // &mut self, returns Copy IndexSet
+        let consumed = strs.char_len(start);
+        if strs.end(start + consumed) {
+            matched.get((self.search_str.len() - offset) as u32)
+        } else {
+            // Collect indices first so we don't hold a &mut borrow while recursing.
+            let mut indices = Vec::new();
+            matched.foreach(|i| indices.push(i));
+            for i in indices {
+                if self.check_in(offset + i as usize, start + consumed, strs) {
+                    return true;
+                }
+            }
+            false
+        }
+    }
 }
